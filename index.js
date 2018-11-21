@@ -9,6 +9,11 @@ const Tx = require('ethereumjs-tx')
 const cors = require('cors')
 
 //process.argv[2] = ""
+const asyncMiddleware = fn =>
+    (req, res, next) => {
+    Promise.resolve(fn(req, res, next))
+        .catch(next);
+    };
 
 app.use(cors({
     origin: 'https://test-b.swarm.city'
@@ -16,15 +21,55 @@ app.use(cors({
 
 app.listen(33333)
 
-const asyncMiddleware = fn =>
-    (req, res, next) => {
-    Promise.resolve(fn(req, res, next))
-        .catch(next);
-    };
+app.get('/:address', asyncMiddleware(async (req, res, next) => {
+    if(isAddress(req.params.address)) {
 
-async function getBalance(address) {
-    let balance = await web3.eth.getBalance(address)
-    return balance
+    } else {
+        return 'not a valid address'
+    }
+    var address = req.params.address
+    console.log('request: ', address)
+    var balance = await getBalance(address)
+    console.log(address, ' has ', balance)
+    
+    db.get(address, function (err, value) {
+        if (err) {
+            db.put(address, Date.now() - 10000)
+            var result = checkAddress(address).then((result) => {
+                res.send(result)
+            });
+
+        } else {
+            var result = checkAddress(address).then((result) => {
+                res.send(result)
+            });
+        }
+    })
+
+}));
+
+async function checkAddress(address) {
+    var balance = await getBalance(address)
+    if(balance < 500000000000000000) {
+        console.log("request for ", address)
+        // check last time address was seen
+        if(await db.get(address) && await db.get(address) < (Date.now() - 10000)) {
+            console.log("Okay for ", address)
+            doTransfer(address)
+            .then((result) => {
+                db.put(address, Date.now())
+                return result
+            })
+        } else {
+            console.log("Too soon for ", address)
+            console.log(await db.get(address), " -- ", Date.now())
+            return 'toosoon'
+        }
+    } else {
+        console.log('balance is high enoug ', address)
+        return 'balance is high enough'
+    }
+    db.put(address, Date.now())
 }
 
 async function doTransfer(address) {
@@ -53,43 +98,15 @@ async function doTransfer(address) {
     return ('https://kovan.etherscan.io/tx/'+status.transactionHash)
 }
 
-app.get('/:address', asyncMiddleware(async (req, res, next) => {
+async function getBalance(address) {
+    var balance = await web3.eth.getBalance(address)
+    return balance
+}
 
-    let address = req.params.address
-    console.log('request: ', address)
-    let balance = await getBalance(address)
-    console.log(address, ' has ', balance)
-    db.get(address, function (err, value) {
-        if (err) {
-            db.put(address, Date.now())
-        } else {
-            console.log('founc =', value)
-        }
-      })
-    //var result = await db.get(address)
-    //console.log(result.catch())
-    //if(result) {}
-    if(balance < 500000000000000000) {
-        console.log("request for ", address)
-        // check last time address was seen
-        if(await db.get(address) && await db.get(address) < (Date.now() - 10000)) {
-            console.log("Okay for ", address)
-            doTransfer(address)
-            .then((result) => {
-                db.put(address, Date.now())
-                res.send(result)
-            })
-        } else {
-            console.log("Too soon for ", address)
-            console.log(await db.get(address), " -- ", Date.now())
-            res.send('toosoon')
-        }
-    } else {
-        console.log('balance is high enoug ', address)
-        res.send('balance is high enough')
-    }
-    db.put(address, Date.now())
-}));
+function isAddress(address) {
+    return web3.utils.isAddress(address)
+    //return /^(0x)?[0-9a-f]{40}$/i.test(address);
+}
 
 async function runFaucet() {
     console.log("Swarm City Faucet")
