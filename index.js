@@ -8,13 +8,13 @@ const db = level('./db')
 const Tx = require('ethereumjs-tx')
 const cors = require('cors')
 
-process.argv[2] = ""
+//process.argv[2] = ""
 
 app.use(cors({
     origin: 'https://test-b.swarm.city'
   }));
 
-app.listen(3000)
+app.listen(33333)
 
 const asyncMiddleware = fn =>
     (req, res, next) => {
@@ -59,6 +59,16 @@ app.get('/:address', asyncMiddleware(async (req, res, next) => {
     console.log('request: ', address)
     let balance = await getBalance(address)
     console.log(address, ' has ', balance)
+    db.get(address, function (err, value) {
+        if (err) {
+            db.put(address, Date.now())
+        } else {
+            console.log('founc =', value)
+        }
+      })
+    //var result = await db.get(address)
+    //console.log(result.catch())
+    //if(result) {}
     if(balance < 500000000000000000) {
         console.log("request for ", address)
         // check last time address was seen
