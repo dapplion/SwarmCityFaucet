@@ -6,6 +6,13 @@ const level = require('level')
 const util = require('ethereumjs-util')
 const db = level('./db')
 const Tx = require('ethereumjs-tx')
+const cors = require('cors')
+
+process.argv[2] = ""
+
+app.use(cors({
+    origin: 'https://test-b.swarm.city'
+  }));
 
 app.listen(3000)
 
