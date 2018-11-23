@@ -5,10 +5,12 @@ const app = express()
 const level = require('level')
 const util = require('ethereumjs-util')
 const db = level('./db')
+const list = level('./queue')
 const Tx = require('ethereumjs-tx')
 const cors = require('cors')
 
 //process.argv[2] = ""
+
 const asyncMiddleware = fn =>
     (req, res, next) => {
     Promise.resolve(fn(req, res, next))
@@ -16,63 +18,61 @@ const asyncMiddleware = fn =>
     };
 
 app.use(cors({
-    origin: 'https://test-b.swarm.city'
+    origin: '*'
   }));
 
 app.listen(33333)
 
-app.get('/:address', asyncMiddleware(async (req, res, next) => {
-    if(isAddress(req.params.address)) {
-
-    } else {
-        return 'not a valid address'
-    }
-    var address = req.params.address
-    console.log('request: ', address)
-    var balance = await getBalance(address)
-    console.log(address, ' has ', balance)
-    
-    db.get(address, function (err, value) {
-        if (err) {
-            db.put(address, Date.now() - 10000)
-            var result = checkAddress(address).then((result) => {
-                res.send(result)
-            });
-
-        } else {
-            var result = checkAddress(address).then((result) => {
-                res.send(result)
-            });
-        }
+async function iterateQueue () {
+    console.log('Going through queue')
+    var stream = list
+    .createReadStream({
+    keys: true,
+    values: true
     })
+    .on("data", asyncMiddleware(async item => {
+        console.log("item:", item);
+        var isItemAddress = await isAddress(item.key)
+        if(!isItemAddress) {
+            console.log(item.key, " is not a valid address.")
+            list.del(item.key)
+            stream.destroy()
+            return
+        }
+        var isItemKnown = await makeKnown(item.key)
+        if(!isItemKnown) {
+            console.log(item.key, " something wrong storing or retrieving")
+            list.del(item.key)
+            stream.destroy()
+            return
+        }
+        var isItemValid = await checkValidity(item.key)
+        if(isItemValid) {
+            console.log('item can get money now')
+            var result = await doTransfer(item.key)
+            console.log(result)
+            list.del(item.key)
+            console.log("Removed item ", item.key, " from list")
+            stream.destroy();
+        } else {
+            console.log('item is not valid')
+        } 
+    }))
+}
+        
 
+var q = []
+
+app.get('/:address', asyncMiddleware(async (req, res, next) => {
+    console.log('Request: ', req.params.address)
+    var address = req.params.address
+    list.put(address, Date.now())
+    res.status(200).json({ 'status': 'queued'})
 }));
 
-async function checkAddress(address) {
-    var balance = await getBalance(address)
-    if(balance < 500000000000000000) {
-        console.log("request for ", address)
-        // check last time address was seen
-        if(await db.get(address) && await db.get(address) < (Date.now() - 10000)) {
-            console.log("Okay for ", address)
-            doTransfer(address)
-            .then((result) => {
-                db.put(address, Date.now())
-                return result
-            })
-        } else {
-            console.log("Too soon for ", address)
-            console.log(await db.get(address), " -- ", Date.now())
-            return 'toosoon'
-        }
-    } else {
-        console.log('balance is high enoug ', address)
-        return 'balance is high enough'
-    }
-    db.put(address, Date.now())
-}
-
 async function doTransfer(address) {
+    db.put(address, Date.now())
+    //return 'transfer'
     var private = Buffer.from(process.argv[2], 'hex')
     var senderBuffer = await util.privateToAddress('0x'+process.argv[2])
     var sender = util.bufferToHex(senderBuffer)
@@ -95,6 +95,7 @@ async function doTransfer(address) {
     var status = await web3.eth.sendSignedTransaction(raw)
     console.log('https://kovan.etherscan.io/tx/'+status.transactionHash)
     console.log('\n')
+    db.put(address, Date.now())
     return ('https://kovan.etherscan.io/tx/'+status.transactionHash)
 }
 
@@ -103,13 +104,39 @@ async function getBalance(address) {
     return balance
 }
 
-function isAddress(address) {
-    return web3.utils.isAddress(address)
-    //return /^(0x)?[0-9a-f]{40}$/i.test(address);
+async function isAddress(address) {
+    return await web3.utils.isAddress(address)
+}
+
+async function makeKnown(address) {
+    try {
+        await db.get(address);
+        return true
+      } catch (error) {
+        //return response.status(400).send(error);
+        var res = await db.put(address, Date.now()-10000)
+        return true
+      }
+}
+
+async function checkValidity(address) {
+    console.log('checking validity for ', address)
+    var balance = await getBalance(address)
+    if(balance > 500000000000000000) throw Error('Balance sufficient')
+    if(await db.get(address) < (Date.now() - 10000)) {
+        return true
+    } else {
+        console.log("Too soon for ", address)
+        return false
+    }
 }
 
 async function runFaucet() {
     console.log("Swarm City Faucet")
+    // queue monitor
+setInterval(() => {
+    iterateQueue();
+  }, 10 * 1000);
 }
 
 runFaucet()
