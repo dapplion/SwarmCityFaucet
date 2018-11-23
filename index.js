@@ -1,5 +1,4 @@
 const Web3 = require('web3');
-const web3 = new Web3('wss://kovan.swarm.city');
 const express = require('express')
 const app = express()
 const level = require('level')
@@ -10,6 +9,28 @@ const Tx = require('ethereumjs-tx')
 const cors = require('cors')
 
 //process.argv[2] = ""
+
+// const url = 'wss://kovan.infura.io/ws   '
+const KOVAN_WSS = "wss://kovan.swarm.city"; // Swarm City Chain
+// const url = "ws://178.128.207.83:8546"; // Swarm City Chain
+// const url = 'ws://my.kovan.dnp.dappnode.eth:8546'
+
+let provider = new Web3.providers.WebsocketProvider(KOVAN_WSS);
+web3 = new Web3(provider);
+
+provider.on('error', e => console.log('WS Error', e));
+provider.on('end', e => {
+      console.log('WSS closed');
+      console.log('Attempting to reconnect...');
+      provider = new Web3.providers.WebsocketProvider(KOVAN_WSS);
+
+      provider.on('connect', function () {
+        console.log('WSS Reconnected');
+      });
+
+      web3.setProvider(provider);
+    });
+    setInterval(() => { web3.eth.getBlockNumber().then(console.log) }, 30 * 1000);
 
 const asyncMiddleware = fn =>
     (req, res, next) => {
