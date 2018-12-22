@@ -14,13 +14,13 @@ const web3 = new Web3(getProvider());
 // Get the web3 provider object with all event listeners configured
 function getProvider() {
   const _provider = new Web3.providers.WebsocketProvider(KOVAN_WSS);
-  _provider.on('connect', () => {
-    console.log('Web3 provider connected');
+  _provider.on('connect', (e = {}) => {
+    console.log(`Web3 provider connected to url: ${(e.target || {})._url}`);
   });
-  _provider.on('error', (e) => {
+  _provider.on('error', (e = {}) => {
     console.log(`Web3 provider connection error: ${e.message || e}`);
   });
-  _provider.on('end', (e) => {
+  _provider.on('end', (e = {}) => {
     console.log(`Web3 provider connection ended: ${e.message || e}`);
     console.log('Attempting to reconnect...');
     // On connection error, reset the provider

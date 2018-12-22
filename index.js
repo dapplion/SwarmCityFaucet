@@ -31,9 +31,9 @@ const senderPrivateKeyBuffer = Buffer.from(senderPrivateKey, 'hex');
 const senderAddress = web3.eth.accounts.privateKeyToAccount('0x'+senderPrivateKey).address;
 
 // Parameter unit conversion (do not edit)
-const upperThresholdWei = web3Utils.toWei(upperThresholdEth, 'ether');
-const gasPriceWei = web3Utils.toWei(gasPriceGwei, 'gwei');
-const valueSentPerTxWei = web3Utils.toWei(valueSentPerTxEth, 'ether');
+const upperThresholdWei = web3Utils.toWei(String(upperThresholdEth), 'ether');
+const gasPriceWei = web3Utils.toWei(String(gasPriceGwei), 'gwei');
+const valueSentPerTxWei = web3Utils.toWei(String(valueSentPerTxEth), 'ether');
 
 /* eslint-disable no-console */
 
@@ -89,5 +89,6 @@ app.listen(port);
 
 console.log(`Swarm City Faucet started. Listening at port ${port}`);
 web3.eth.getBalance(senderAddress).then((senderBalance) => {
-  console.log(`Faucet sender = ${senderAddress}, remaining balance = ${web3.utils.fromWei(senderBalance, 'ether')} ETH`);
+  if (isNaN(senderBalance)) console.log(`Faucet sender = ${senderAddress}, error getting its balance`);
+  else console.log(`Faucet sender = ${senderAddress}, remaining balance = ${web3.utils.fromWei(senderBalance, 'ether')} ETH`);
 });
