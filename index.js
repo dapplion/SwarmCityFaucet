@@ -1,163 +1,93 @@
-const Web3 = require('web3');
-const express = require('express')
-const app = express()
-const level = require('level')
-const util = require('ethereumjs-util')
-const db = level('./db')
-const list = level('./queue')
-const Tx = require('ethereumjs-tx')
-const cors = require('cors')
 
-//process.argv[2] = ""
+const express = require('express');
+const app = express();
+const Tx = require('ethereumjs-tx');
+const cors = require('cors');
+const web3 = require('./web3-connection');
+const web3Utils = require('web3-utils');
+const rateLimit = require('express-rate-limit');
 
-// const url = 'wss://kovan.infura.io/ws   '
-const KOVAN_WSS = "wss://kovan.swarm.city"; // Swarm City Chain
-// const url = "ws://178.128.207.83:8546"; // Swarm City Chain
-// const url = 'ws://my.kovan.dnp.dappnode.eth:8546'
+/**
+ * The SwarmCity faucet will send test eth to users that need it.
+ * The request must be:
+ * 'GET' to 'https://path.to.faucet/' + address
+ *
+ * The conditions to execute the refill are:
+ * - userBalance > upperThresholdEth
+ */
 
-let provider = new Web3.providers.WebsocketProvider(KOVAN_WSS);
-web3 = new Web3(provider);
+// Faucet parameters (edit)
+const upperThresholdEth = 1;
+const valueSentPerTxEth = 5;
+const gasPriceGwei = 1;
+const gasLimit = 314150;
+const senderPrivateKey = process.argv[2];
 
-provider.on('error', e => console.log('WS Error', e));
-provider.on('end', e => {
-      console.log('WSS closed');
-      console.log('Attempting to reconnect...');
-      provider = new Web3.providers.WebsocketProvider(KOVAN_WSS);
+// Api parameters (careful editing)
+const port = 33333;
 
-      provider.on('connect', function () {
-        console.log('WSS Reconnected');
-      });
+// =============== (do not edit below)
+const senderPrivateKeyBuffer = Buffer.from(senderPrivateKey, 'hex');
+const senderAddress = web3.eth.accounts.privateKeyToAccount('0x'+senderPrivateKey).address;
 
-      web3.setProvider(provider);
-    });
-    setInterval(() => { web3.eth.getBlockNumber().then(console.log) }, 30 * 1000);
+// Parameter unit conversion (do not edit)
+const upperThresholdWei = web3Utils.toWei(upperThresholdEth, 'ether');
+const gasPriceWei = web3Utils.toWei(gasPriceGwei, 'gwei');
+const valueSentPerTxWei = web3Utils.toWei(valueSentPerTxEth, 'ether');
 
-const asyncMiddleware = fn =>
-    (req, res, next) => {
-    Promise.resolve(fn(req, res, next))
-        .catch(next);
-    };
+/* eslint-disable no-console */
 
-app.use(cors({
-    origin: '*'
-  }));
+// only if you're behind a reverse proxy (Heroku, Bluemix, AWS ELB, Nginx, etc)
+// app.enable('trust proxy');
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 100 requests per windowMs
+});
 
-app.listen(33333)
+// apply to all requests
+app.use(limiter);
 
-async function iterateQueue () {
-    console.log('Going through queue')
-    var stream = list
-    .createReadStream({
-    keys: true,
-    values: true
-    })
-    .on("data", asyncMiddleware(async item => {
-        console.log("item:", item);
-        var isItemAddress = await isAddress(item.key)
-        if(!isItemAddress) {
-            console.log(item.key, " is not a valid address.")
-            list.del(item.key)
-            stream.destroy()
-            return
-        }
-        var isItemKnown = await makeKnown(item.key)
-        if(!isItemKnown) {
-            console.log(item.key, " something wrong storing or retrieving")
-            list.del(item.key)
-            stream.destroy()
-            return
-        }
-        var isItemValid = await checkValidity(item.key)
-        if(isItemValid) {
-            console.log('item can get money now')
-            var result = await doTransfer(item.key)
-            console.log(result)
-            list.del(item.key)
-            console.log("Removed item ", item.key, " from list")
-            stream.destroy();
-        } else {
-            console.log('item is not valid')
-        } 
-    }))
-}
-        
+// Restrict cors
+app.use(cors({origin: '*'}));
 
-var q = []
-
-app.get('/:address', asyncMiddleware(async (req, res, next) => {
-    console.log('Request: ', req.params.address)
-    var address = req.params.address
-    list.put(address, Date.now())
-    res.status(200).json({ 'status': 'queued'})
-}));
+app.get('/:address', async (req, res) => {
+  try {
+    const address = req.params.address;
+    console.log(`Faucet request for address ${address} from IP ${req.ip} at ${Date()}`);
+    const balance = await web3.eth.getBalance(address);
+    if (balance > upperThresholdWei) {
+      throw Error(`You must have less than ${upperThresholdEth} ETH to request faucet funds`);
+    }
+    const txHash = await doTransfer(address);
+    const etherscanTxLink = `https://kovan.etherscan.io/tx/${txHash}`;
+    console.log(`Sent ${valueSentPerTxEth} ETH to ${address}: $${etherscanTxLink}`);
+    res.status(200).json({'status': 'queued'});
+  } catch (e) {
+    res.status(500).json({'status': 'queued'});
+  }
+});
 
 async function doTransfer(address) {
-    db.put(address, Date.now())
-    //return 'transfer'
-    var private = Buffer.from(process.argv[2], 'hex')
-    var senderBuffer = await util.privateToAddress('0x'+process.argv[2])
-    var sender = util.bufferToHex(senderBuffer)
-    var value = web3.utils.toHex('200000')
-    var gasPrice = await web3.eth.getGasPrice()
-    var nonceTo = await web3.eth.getTransactionCount(address)
-    var nonceSender = await web3.eth.getTransactionCount(sender)
-    var rawTransaction = {
-        "nonce": nonceSender++,
-        "from": sender,
-        "to": address,
-        "gasLimit": 314150,
-        "gasPrice": 2400000000,
-        "value": 50000000000000000,       
-        "chainId": 42
-    };
-    var tx = new Tx(rawTransaction)
-    tx.sign(private);
-    var raw = '0x' + tx.serialize().toString('hex');
-    var status = await web3.eth.sendSignedTransaction(raw)
-    console.log('https://kovan.etherscan.io/tx/'+status.transactionHash)
-    console.log('\n')
-    db.put(address, Date.now())
-    return ('https://kovan.etherscan.io/tx/'+status.transactionHash)
+  let nonceSender = await web3.eth.getTransactionCount(senderAddress);
+  const rawTransaction = {
+    'nonce': nonceSender++,
+    'from': senderAddress,
+    'to': address,
+    'gasLimit': gasLimit,
+    'gasPrice': gasPriceWei,
+    'value': valueSentPerTxWei,
+    'chainId': 42,
+  };
+  const tx = new Tx(rawTransaction);
+  tx.sign(senderPrivateKeyBuffer);
+  const raw = '0x' + tx.serialize().toString('hex');
+  const status = await web3.eth.sendSignedTransaction(raw);
+  return status.transactionHash;
 }
 
-async function getBalance(address) {
-    var balance = await web3.eth.getBalance(address)
-    return balance
-}
+app.listen(port);
 
-async function isAddress(address) {
-    return await web3.utils.isAddress(address)
-}
-
-async function makeKnown(address) {
-    try {
-        await db.get(address);
-        return true
-      } catch (error) {
-        //return response.status(400).send(error);
-        var res = await db.put(address, Date.now()-10000)
-        return true
-      }
-}
-
-async function checkValidity(address) {
-    console.log('checking validity for ', address)
-    var balance = await getBalance(address)
-    if(balance > 500000000000000000) throw Error('Balance sufficient')
-    if(await db.get(address) < (Date.now() - 10000)) {
-        return true
-    } else {
-        console.log("Too soon for ", address)
-        return false
-    }
-}
-
-async function runFaucet() {
-    console.log("Swarm City Faucet")
-    // queue monitor
-setInterval(() => {
-    iterateQueue();
-  }, 10 * 1000);
-}
-
-runFaucet()
+console.log(`Swarm City Faucet started. Listening at port ${port}`);
+web3.eth.getBalance(senderAddress).then((senderBalance) => {
+  console.log(`Faucet sender = ${senderAddress}, remaining balance = ${web3.utils.fromWei(senderBalance, 'ether')} ETH`);
+});
