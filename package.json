@@ -4,7 +4,8 @@
   "description": "Simple faucet to provide kovEth to Swarm Citizens",
   "main": "index.js",
   "scripts": {
-    "test": "test"
+    "test": "test",
+    "start": "node index.js"
   },
   "repository": {
     "type": "git",
