@@ -1,7 +1,7 @@
 {
-  "name": "swarmcityfaucet",
+  "name": "swarmcity-faucet",
   "version": "1.0.0",
-  "description": "Simple faucet to provide kovEth to Swarm Citizens",
+  "description": "Simple faucet to provide KovanEth to Swarm Citizens",
   "main": "index.js",
   "scripts": {
     "test": "test"

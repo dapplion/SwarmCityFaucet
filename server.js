@@ -22,11 +22,11 @@ const valueSentPerTxEth = 5;
 const gasPriceGwei = 1;
 const gasLimit = 314150;
 const chainId = 42; // Kovan
-const senderPrivateKey = process.argv[2];
+const senderPrivateKey = process.argv[2] || process.env.PRIVATE_KEY;
 const web3Provider = process.env.WEB3_PROVIDER || 'https://kovan.infura.io';
 
 // Api parameters (careful editing)
-const port = 33333;
+const port = process.env.port || 3000;
 
 // ===================================
 // ====== (do not edit below) ========
