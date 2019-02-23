@@ -2,26 +2,14 @@
   "name": "swarmcity-faucet",
   "version": "1.0.0",
   "description": "Simple faucet to provide KovanEth to Swarm Citizens",
-  "main": "index.js",
   "scripts": {
-    "test": "test",
-    "start": "node index.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/karsrhyder/SwarmCityFaucet.git"
+    "test": "mocha --exit",
+    "start": "node server"
   },
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/karsrhyder/SwarmCityFaucet/issues"
-  },
-  "homepage": "https://github.com/karsrhyder/SwarmCityFaucet#readme",
   "dependencies": {
-    "cors": "^2.8.5",
     "ethereumjs-tx": "^1.3.7",
-    "ethereumjs-util": "^6.0.0",
-    "ethjs-util": "^0.1.6",
     "express-rate-limit": "^3.3.2",
     "level": "^4.0.0",
     "web3": "^1.0.0-beta.36"
