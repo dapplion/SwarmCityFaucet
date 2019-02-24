@@ -1,9 +1,7 @@
 const express = require('express');
 const app = express();
-const Tx = require('ethereumjs-tx');
 const Web3 = require('web3');
 const web3Utils = require('web3-utils');
-const rateLimit = require('express-rate-limit');
 // Utils
 const wrapErrors = require('./utils/wrapErrors');
 
@@ -16,13 +14,15 @@ const wrapErrors = require('./utils/wrapErrors');
  * - userBalance > upperThresholdEth
  */
 
+/* eslint-disable no-console */
+
 // Faucet parameters (edit)
 const upperThresholdEth = 1;
-const valueSentPerTxEth = 5;
+const valueSentPerTxEth = 0.1;
 const gasPriceGwei = 1;
-const gasLimit = 314150;
+const gasLimit = 21000; // Only ETH transaction
 const chainId = 42; // Kovan
-const senderPrivateKey = process.argv[2] || process.env.PRIVATE_KEY;
+const privateKey = process.argv[2] || process.env.PRIVATE_KEY;
 const web3Provider = process.env.WEB3_PROVIDER || 'https://kovan.infura.io';
 
 // Api parameters (careful editing)
@@ -36,28 +36,25 @@ const port = process.env.port || 3000;
 const web3 = new Web3(web3Provider);
 
 // Compute private key and address
-if (!senderPrivateKey) throw Error('The second argument must be a private address: node index.js 842b0041...');
-const senderPrivateKeyBuffer = Buffer.from(senderPrivateKey, 'hex');
-const senderAddress = web3.eth.accounts.privateKeyToAccount('0x' + senderPrivateKey).address;
+if (!privateKey) throw Error('You must provide a private address for the faucet sender. Either as env PRIVATE_KEY=842b0041..., or process argument node index.js 842b0041...');
+const senderPrivateKey = '0x' + privateKey.replace('0x', '');
+const senderAddress = web3.eth.accounts.privateKeyToAccount(senderPrivateKey).address;
 
 // Parameter unit conversion (do not edit)
 const upperThresholdWei = web3Utils.toWei(String(upperThresholdEth), 'ether');
 const gasPriceWei = web3Utils.toWei(String(gasPriceGwei), 'gwei');
 const valueSentPerTxWei = web3Utils.toWei(String(valueSentPerTxEth), 'ether');
-
-/* eslint-disable no-console */
-
-// only if you're behind a reverse proxy (Heroku, Bluemix, AWS ELB, Nginx, etc)
-// app.enable('trust proxy');
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-});
-
-// apply to all requests
-app.use(limiter);
+console.log('Faucet params \n', {upperThresholdWei, gasPriceWei, valueSentPerTxWei});
 
 app.get('/', (_, res) => res.send('Swarm City faucet service'));
+
+app.get(
+    '/status',
+    wrapErrors(async (_, res) => {
+      const faucetStatus = await getFaucetStatus();
+      res.json(faucetStatus);
+    })
+);
 
 app.get(
     '/:address',
@@ -69,33 +66,34 @@ app.get(
 
       // Enforce conditions
       const balance = await web3.eth.getBalance(address);
-      if (balance > upperThresholdWei) {
-        throw Error(`You must have less than ${upperThresholdEth} ETH to request faucet funds`);
+      const balanceBn = web3.utils.toBN(balance);
+      const upperThresholdWeiBn = web3.utils.toBN(upperThresholdWei);
+      if (balanceBn.gt(upperThresholdWeiBn)) {
+        const balanceEth = web3Utils.fromWei(balance);
+        throw Error(`You must have less than ${upperThresholdEth} ETH to request faucet funds. Requested account: ${address} balance: ${balanceEth} ETH`);
       }
 
       // Prepare tx
-      const nonceSender = await web3.eth.getTransactionCount(senderAddress);
-      const rawTransaction = {
-        nonce: nonceSender + 1,
-        from: senderAddress,
-        to: address,
-        gasLimit: gasLimit,
-        gasPrice: gasPriceWei,
-        value: valueSentPerTxWei,
-        chainId,
-      };
-      const tx = new Tx(rawTransaction);
-      tx.sign(senderPrivateKeyBuffer);
-      const raw = '0x' + tx.serialize().toString('hex');
+      // Web3 method takes care of the nonce, chainId and gasPrice automatically
+      // https://web3js.readthedocs.io/en/1.0/web3-eth-accounts.html#signtransaction
+      const tx = await web3.eth.accounts.signTransaction(
+          {
+            to: address,
+            value: valueSentPerTxWei,
+            gasLimit: gasLimit,
+          },
+          senderPrivateKey
+      );
 
       // Broadcast tx
-      const status = await web3.eth.sendSignedTransaction(raw);
-      const txHash = status.transactionHash;
-
-      // Return link
-      const etherscanTxLink = `https://kovan.etherscan.io/tx/${txHash}`;
-      console.log(`Sent ${valueSentPerTxEth} ETH to ${address}: $${etherscanTxLink}`);
-      res.json({txHash, url: etherscanTxLink});
+      const rawTx = tx.rawTransaction;
+      // Using .sendSignedTransaction as a promise resolves on the receipt when mined.
+      // For this application it needs the tx hash ASAP, so the event form is used
+      web3.eth.sendSignedTransaction(rawTx).on('transactionHash', (hash) => {
+        const etherscanTxLink = `https://kovan.etherscan.io/tx/${hash}`;
+        console.log(`Sent ${valueSentPerTxEth} ETH to ${address}: ${etherscanTxLink}`);
+        res.json({hash, url: etherscanTxLink});
+      });
     })
 );
 
@@ -106,11 +104,28 @@ console.log(`App listening at port ${port}`);
 // Make sure the provided address has sufficient balance
 verifyFaucet();
 async function verifyFaucet() {
+  // Check network status
   const nodeNetworkId = await web3.eth.net.getId();
   const isListening = await web3.eth.net.isListening();
   if (nodeNetworkId != chainId) throw Error(`WARNING nodeNetworkId ${nodeNetworkId} != chainId ${chainId}`);
   console.log(`Connected to ${web3Provider}, isListening: ${isListening}, nodeNetworkId: ${nodeNetworkId}`);
-  const senderBalance = await web3.eth.getBalance(senderAddress);
-  if (isNaN(senderBalance)) console.log(`Faucet sender = ${senderAddress}, error getting its balance`);
-  else console.log(`Faucet sender = ${senderAddress}, remaining balance = ${web3.utils.fromWei(senderBalance, 'ether')} ETH`);
+
+  // Check the faucet stats
+  const faucetStatus = await getFaucetStatus();
+  console.log('faucet status \n', faucetStatus);
+}
+
+// Modularize to be used on startup and on the /status/ route
+async function getFaucetStatus() {
+  const blockNumber = await web3.eth.getBlockNumber();
+  const faucetBalance = await web3.eth.getBalance(senderAddress);
+  const faucetBalanceBn = web3.utils.toBN(faucetBalance);
+  const valueSentPerTxWeiBn = web3.utils.toBN(valueSentPerTxWei);
+  return {
+    blockNumber,
+    faucetBalance: web3Utils.fromWei(faucetBalance),
+    faucetAddress: senderAddress,
+    // Round downwards, if refillsLeft < 1, the faucet is dead
+    refillsLeft: parseInt(faucetBalanceBn.div(valueSentPerTxWeiBn).toString(10)),
+  };
 }

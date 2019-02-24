@@ -5,5 +5,5 @@ services:
     build: "."
     restart: always
     environment:
-      WEB3_PROVIDER: "http://kovan"
-      PRIVATE_KEY: "ef4b9e1ffc5f1c880ac..."
+      WEB3_PROVIDER: ""
+      PRIVATE_KEY: ""
