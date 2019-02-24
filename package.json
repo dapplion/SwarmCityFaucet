@@ -1,13 +1,12 @@
 {
   "name": "swarmcity-faucet",
   "version": "1.0.0",
-  "description": "Simple faucet to provide KovanEth to Swarm Citizens",
   "scripts": {
     "test": "mocha --exit",
     "start": "node server"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "swarmcity",
+  "license": "MIT",
   "dependencies": {
     "ethereumjs-tx": "^1.3.7",
     "express-rate-limit": "^3.3.2",

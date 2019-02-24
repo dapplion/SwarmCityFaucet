@@ -57,6 +57,8 @@ const limiter = rateLimit({
 // apply to all requests
 app.use(limiter);
 
+app.get('/', (_, res) => res.send('Swarm City faucet service'));
+
 app.get(
     '/:address',
     wrapErrors(async (req, res) => {
@@ -99,7 +101,7 @@ app.get(
 
 // Start API
 app.listen(port);
-console.log(`Swarm City Faucet started. Listening at port ${port}`);
+console.log(`App listening at port ${port}`);
 
 // Make sure the provided address has sufficient balance
 verifyFaucet();
